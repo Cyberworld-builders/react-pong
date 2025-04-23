@@ -55,17 +55,25 @@ const PongGame = () => {
     }
   };
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    let animationFrameId;
+
     const gameLoop = () => {
       updateGame();
       draw(ctx);
-      if (!gameOver) requestAnimationFrame(gameLoop);
+      if (!gameOver) {
+        animationFrameId = requestAnimationFrame(gameLoop);
+      }
     };
+
     gameLoop();
-  }, [gameOver]);
+
+    return () => {
+      cancelAnimationFrame(animationFrameId);
+    };
+  }, [gameOver, draw, updateGame]); // Added draw and updateGame to dependencies
 
   const handleMouseMove = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
@@ -77,16 +85,9 @@ const PongGame = () => {
 
   const restartGame = () => {
     ballRef.current = { x: 300, y: 400, dx: 4, dy: -4, radius: 8 };
+    paddleRef.current.x = 260; // Reset paddle position
     setScore(0);
     setGameOver(false);
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    const gameLoop = () => {
-      updateGame();
-      draw(ctx);
-      if (!gameOver) requestAnimationFrame(gameLoop);
-    };
-    gameLoop();
   };
 
   return (
