@@ -7,10 +7,8 @@ const TetrisGame = () => {
   const canvasRef = useRef(null);
   const boardRef = useRef(Array(20).fill().map(() => Array(10).fill(0))); // 10x20 grid
   const pieceRef = useRef(null);
-  const nextPieceRef = useRef(null);
-  const canvasWidth = 300; // 10 cols * 30px
-  const canvasHeight = 600; // 20 rows * 30px
-  const blockSize = 30;
+  const containerRef = useRef(null);
+  const [canvasSize, setCanvasSize] = useState({ width: 300, height: 600, blockSize: 30 });
 
   // Tetromino shapes and colors
   const tetrominoes = [
@@ -23,6 +21,22 @@ const TetrisGame = () => {
     { shape: [[0, 0, 1], [1, 1, 1]], color: '#F0A000' }, // L
   ];
 
+  // Dynamically adjust canvas size based on viewport
+  useEffect(() => {
+    const updateCanvasSize = () => {
+      const containerWidth = containerRef.current.offsetWidth;
+      const maxWidth = Math.min(containerWidth, 300); // Max 300px for desktop
+      const blockSize = maxWidth / 10; // 10 columns
+      const canvasWidth = blockSize * 10;
+      const canvasHeight = blockSize * 20; // 20 rows
+      setCanvasSize({ width: canvasWidth, height: canvasHeight, blockSize });
+    };
+
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, []);
+
   const getRandomPiece = () => {
     const { shape, color } = tetrominoes[Math.floor(Math.random() * tetrominoes.length)];
     return {
@@ -34,9 +48,10 @@ const TetrisGame = () => {
   };
 
   const draw = useCallback((ctx) => {
-    ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+    const { width, height, blockSize } = canvasSize;
+    ctx.clearRect(0, 0, width, height);
     ctx.fillStyle = '#111827'; // bg-gray-800
-    ctx.fillRect(0, 0, canvasWidth, canvasHeight);
+    ctx.fillRect(0, 0, width, height);
 
     // Draw board
     for (let y = 0; y < 20; y++) {
@@ -62,11 +77,11 @@ const TetrisGame = () => {
     }
 
     // Draw score
-    ctx.font = '16px monospace';
+    ctx.font = `${blockSize * 0.5}px monospace`; // Scale font with block size
     ctx.fillStyle = '#FFFFFF';
-    ctx.fillText(`Score: ${score}`, 10, 20);
-    ctx.fillText(`High Score: ${highScore}`, canvasWidth - 120, 20);
-  }, [score, highScore]);
+    ctx.fillText(`Score: ${score}`, blockSize * 0.33, blockSize * 0.66);
+    ctx.fillText(`High Score: ${highScore}`, width - blockSize * 4, blockSize * 0.66);
+  }, [score, highScore, canvasSize]);
 
   const checkCollision = (piece, board, dx = 0, dy = 0) => {
     for (let y = 0; y < piece.shape.length; y++) {
@@ -103,7 +118,7 @@ const TetrisGame = () => {
         board.splice(y, 1);
         board.unshift(Array(10).fill(0));
         rowsCleared++;
-        y++; // Re-check the same row after shifting
+        y++;
       }
     }
     return rowsCleared;
@@ -156,7 +171,7 @@ const TetrisGame = () => {
     const ctx = canvas.getContext('2d');
     let animationFrameId;
     let lastTime = 0;
-    const dropInterval = 1000; // Piece drops every 1 second
+    const dropInterval = 1000;
 
     const gameLoop = (time) => {
       if (time - lastTime >= dropInterval) {
@@ -176,6 +191,7 @@ const TetrisGame = () => {
     };
   }, [gameOver, draw, updateGame]);
 
+  // Keyboard controls
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (gameOver) return;
@@ -200,6 +216,75 @@ const TetrisGame = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [gameOver]);
 
+  // Touch controls
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let touchStartTime = 0;
+
+    const handleTouchStart = (e) => {
+      if (gameOver) return;
+      e.preventDefault();
+      const touch = e.touches[0];
+      touchStartX = touch.clientX;
+      touchStartY = touch.clientY;
+      touchStartTime = Date.now();
+    };
+
+    const handleTouchMove = (e) => {
+      if (gameOver) return;
+      e.preventDefault();
+      const piece = pieceRef.current;
+      if (!piece) return;
+
+      const touch = e.touches[0];
+      const deltaX = touch.clientX - touchStartX;
+      const deltaY = touch.clientY - touchStartY;
+
+      // Swipe left/right
+      if (Math.abs(deltaX) > 30) {
+        if (deltaX < 0 && !checkCollision(piece, boardRef.current, -1, 0)) {
+          piece.x -= 1;
+        } else if (deltaX > 0 && !checkCollision(piece, boardRef.current, 1, 0)) {
+          piece.x += 1;
+        }
+        touchStartX = touch.clientX; // Reset to avoid repeated moves
+      }
+
+      // Swipe down
+      if (deltaY > 30 && !checkCollision(piece, boardRef.current, 0, 1)) {
+        piece.y += 1;
+        touchStartY = touch.clientY;
+      }
+    };
+
+    const handleTouchEnd = (e) => {
+      if (gameOver) return;
+      e.preventDefault();
+      const piece = pieceRef.current;
+      if (!piece) return;
+
+      // Detect tap for rotation (less than 200ms and minimal movement)
+      const touchDuration = Date.now() - touchStartTime;
+      const touch = e.changedTouches[0];
+      const deltaX = touch.clientX - touchStartX;
+      const deltaY = touch.clientY - touchStartY;
+      if (touchDuration < 200 && Math.abs(deltaX) < 10 && Math.abs(deltaY) < 10) {
+        rotatePiece(piece);
+      }
+    };
+
+    canvas.addEventListener('touchstart', handleTouchStart);
+    canvas.addEventListener('touchmove', handleTouchMove);
+    canvas.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [gameOver]);
+
   const restartGame = () => {
     boardRef.current = Array(20).fill().map(() => Array(10).fill(0));
     pieceRef.current = null;
@@ -208,19 +293,19 @@ const TetrisGame = () => {
   };
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="w-full max-w-[300px] mx-auto">
       <canvas
         ref={canvasRef}
-        width={canvasWidth}
-        height={canvasHeight}
-        className="bg-gray-800 border-2 border-gray-600"
+        width={canvasSize.width}
+        height={canvasSize.height}
+        className="w-full h-auto bg-gray-800 border-2 border-gray-600"
       />
       {gameOver && (
         <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
           <div className="text-center text-white">
-            <h2 className="text-2xl mb-4">Game Over</h2>
+            <h2 className="text-xl sm:text-2xl mb-4">Game Over</h2>
             <button
-              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+              className="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm sm:text-base"
               onClick={restartGame}
             >
               Restart
@@ -234,8 +319,8 @@ const TetrisGame = () => {
 
 function App() {
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gray-900">
-      <h1 className="text-4xl text-white font-bold mb-4">Tetris</h1>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 p-4">
+      <h1 className="text-3xl sm:text-4xl text-white font-bold mb-4">Tetris</h1>
       <TetrisGame />
     </div>
   );
